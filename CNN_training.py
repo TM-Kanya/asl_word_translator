@@ -145,7 +145,7 @@ net = Cnn(num_classes=51)  # Adjust num_classes to match your dataset
 
 
 print("_________________________________ 1. Sz = 256, LR = 0.005, Ep = 50 (NEW BEST ~40% ACCURACY) _________________________________")
-train(net, batch_size = 256, learning_rate=0.005, num_epochs=20)
+train(net, batch_size = 256, learning_rate=0.005, num_epochs=25)
 
 
 
