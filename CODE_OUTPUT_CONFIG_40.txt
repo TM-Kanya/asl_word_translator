@@ -1,0 +1,210 @@
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data import DataLoader
+
+# Adjust paths to match dataset structure
+def dataLoader(batch_size, root_dir="C:\\Users\\leeho\\OneDrive - University of Toronto\\EngSci - Year 3 (Robo)\\Winter_2025\\APS360_Applied Fundamentals of Deep Learning\\Project\\x_MHI_FINAL"):
+    transform = transforms.Compose([
+        transforms.Resize((64, 64)),  # Resize if needed
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,), (0.5,))
+    ])
+
+    train_dir = "C:\\Users\\leeho\\OneDrive - University of Toronto\\EngSci - Year 3 (Robo)\\Winter_2025\\APS360_Applied Fundamentals of Deep Learning\\Project\\x_train_sample_FINAL1"
+    val_dir = "C:\\Users\\leeho\\OneDrive - University of Toronto\\EngSci - Year 3 (Robo)\\Winter_2025\\APS360_Applied Fundamentals of Deep Learning\\Project\\x_val_sample_FINAL1"
+
+
+    train_dataset = torchvision.datasets.ImageFolder(train_dir, transform=transform)
+    val_dataset = torchvision.datasets.ImageFolder(val_dir, transform=transform)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+    return train_loader, val_loader
+
+class Cnn(nn.Module):
+    
+    # count = 0
+    
+    def __init__(self, num_classes=10):  # Adjust num_classes based on your dataset
+        super(Cnn, self).__init__()
+        self.name = "cnn"
+
+        self.conv1 = nn.Conv2d(3, 16, 3, 1, 1)
+        self.conv2 = nn.Conv2d(16, 32, 3, 1, 1)
+        self.conv3 = nn.Conv2d(32, 64, 3, 1, 1)
+
+        self.relu = nn.ReLU()
+        self.maxpool = nn.MaxPool2d(2, 2)
+
+        # Adjust the fully connected layer to match the number of classes
+        self.fc1 = nn.Linear(64 * 8 * 8, 256)  # Adjusted for 64x64 input
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, num_classes)  # Adjusted to match the number of classes
+
+    def forward(self, x):
+        x = self.maxpool(self.relu(self.conv1(x)))  # After 1st conv + maxpool
+        x = self.maxpool(self.relu(self.conv2(x)))  # After 2nd conv + maxpool
+        x = self.maxpool(self.relu(self.conv3(x)))  # After 3rd conv + maxpool
+
+        # Print the shape before flattening (debugging step)
+        # count+=1
+        # print(count, " Shape before flattening:", x.shape)
+
+        x = x.view(-1, 64 * 8 * 8)  # Flatten for FC layer
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.fc3(x)
+
+        return x
+
+def eval(net, loader):
+    correct = 0
+    total = 0
+    device = next(net.parameters()).device
+
+    net.eval()  # Set model to eval mode
+    with torch.no_grad():
+        for inputs, labels in loader:
+            if labels.dim() == 0:
+                labels = labels.unsqueeze(0)  # Ensures batch shape
+
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = net(inputs)
+            pred = outputs.argmax(dim=1)
+            correct += (pred == labels).sum().item()
+            total += labels.size(0)
+
+    return correct / total
+
+
+
+from tqdm import tqdm
+
+def train(net, batch_size, learning_rate, num_epochs=30):
+    torch.manual_seed(1000)
+
+    train_loader, val_loader = dataLoader(batch_size)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    net.to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(net.parameters(), lr=learning_rate, momentum=0.9)
+    train_acc = np.zeros(num_epochs)
+    val_acc = np.zeros(num_epochs)
+
+    for epoch in range(num_epochs):
+        net.train()
+        correct, total = 0, 0
+        
+        # Wrap the training loop with tqdm to display the progress bar
+        loop = tqdm(train_loader, desc=f'Epoch {epoch + 1}/{num_epochs}', unit='batch', ncols=100)
+        
+        for inputs, labels in loop:
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+            outputs = net(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            pred = outputs.argmax(dim=1)
+            correct += (pred == labels).sum().item()
+            total += labels.size(0)
+
+            # Update the progress bar with the current loss or accuracy
+            loop.set_postfix(loss=loss.item(), accuracy=correct / total)
+
+        train_acc[epoch] = correct / total
+        val_acc[epoch] = eval(net, val_loader)
+
+        print(f"Epoch {epoch + 1}: Train acc: {train_acc[epoch]:.4f} | Validation acc: {val_acc[epoch]:.4f}")
+
+        # Save the model after each epoch
+        model_path = f"model_{net.name}_bs{batch_size}_lr{learning_rate}_epoch{epoch}.pth"
+        torch.save(net.state_dict(), model_path)
+
+    print(train_acc)
+    print(val_acc)
+    np.savetxt("{}_train_acc.csv".format(model_path), train_acc)
+    np.savetxt("{}_val_acc.csv".format(model_path), val_acc)
+
+    print("Training complete!")
+
+# Training Example:
+net = Cnn(num_classes=848)  # Adjust num_classes to match your dataset
+
+train(net, batch_size = 256, learning_rate=0.005, num_epochs=25)
+
+
+
+Epoch 1/25: 100%|██████████████████████| 11/11 [01:29<00:00,  8.16s/batch, accuracy=0.149, loss=4.6]
+Epoch 1: Train acc: 0.1486 | Validation acc: 0.0061
+Epoch 2/25: 100%|█████████████████████| 11/11 [01:39<00:00,  9.04s/batch, accuracy=0.188, loss=4.49]
+Epoch 2: Train acc: 0.1881 | Validation acc: 0.0061
+Epoch 3/25: 100%|█████████████████████| 11/11 [01:35<00:00,  8.64s/batch, accuracy=0.208, loss=4.23]
+Epoch 3: Train acc: 0.2080 | Validation acc: 0.0091
+Epoch 4/25: 100%|█████████████████████| 11/11 [01:29<00:00,  8.16s/batch, accuracy=0.228, loss=4.06]
+Epoch 4: Train acc: 0.2283 | Validation acc: 0.0083
+Epoch 5/25: 100%|█████████████████████| 11/11 [01:43<00:00,  9.37s/batch, accuracy=0.239, loss=3.97]
+Epoch 5: Train acc: 0.2390 | Validation acc: 0.0068
+Epoch 6/25: 100%|█████████████████████| 11/11 [01:42<00:00,  9.33s/batch, accuracy=0.252, loss=4.02]
+Epoch 6: Train acc: 0.2525 | Validation acc: 0.0091
+Epoch 7/25: 100%|█████████████████████| 11/11 [01:43<00:00,  9.43s/batch, accuracy=0.262, loss=3.87]
+Epoch 7: Train acc: 0.2617 | Validation acc: 0.0091
+Epoch 8/25: 100%|█████████████████████| 11/11 [01:43<00:00,  9.42s/batch, accuracy=0.272, loss=3.46]
+Epoch 8: Train acc: 0.2717 | Validation acc: 0.0076
+Epoch 9/25: 100%|██████████████████████| 11/11 [01:40<00:00,  9.18s/batch, accuracy=0.28, loss=3.59]
+Epoch 9: Train acc: 0.2802 | Validation acc: 0.0091
+Epoch 10/25: 100%|█████████████████████| 11/11 [01:37<00:00,  8.83s/batch, accuracy=0.29, loss=3.62]
+Epoch 10: Train acc: 0.2898 | Validation acc: 0.0076
+Epoch 11/25: 100%|████████████████████| 11/11 [01:38<00:00,  8.91s/batch, accuracy=0.298, loss=3.76]
+Epoch 11: Train acc: 0.2980 | Validation acc: 0.0114
+Epoch 12/25: 100%|██████████████████████| 11/11 [01:37<00:00,  8.88s/batch, accuracy=0.3, loss=3.46]
+Epoch 12: Train acc: 0.3005 | Validation acc: 0.0076
+Epoch 13/25: 100%|████████████████████| 11/11 [01:36<00:00,  8.81s/batch, accuracy=0.307, loss=3.61]
+Epoch 13: Train acc: 0.3073 | Validation acc: 0.0083
+Epoch 14/25: 100%|████████████████████| 11/11 [01:39<00:00,  9.05s/batch, accuracy=0.316, loss=3.43]
+Epoch 14: Train acc: 0.3161 | Validation acc: 0.0099
+Epoch 15/25: 100%|████████████████████| 11/11 [01:41<00:00,  9.24s/batch, accuracy=0.327, loss=3.58]
+Epoch 15: Train acc: 0.3272 | Validation acc: 0.0106
+Epoch 16/25: 100%|█████████████████████| 11/11 [01:36<00:00,  8.80s/batch, accuracy=0.33, loss=3.29]
+Epoch 16: Train acc: 0.3300 | Validation acc: 0.0106
+Epoch 17/25: 100%|█████████████████████| 11/11 [01:31<00:00,  8.35s/batch, accuracy=0.34, loss=3.49]
+Epoch 17: Train acc: 0.3396 | Validation acc: 0.0106
+Epoch 18/25: 100%|████████████████████| 11/11 [01:36<00:00,  8.76s/batch, accuracy=0.345, loss=3.18]
+Epoch 18: Train acc: 0.3453 | Validation acc: 0.0106
+Epoch 19/25: 100%|████████████████████| 11/11 [01:35<00:00,  8.68s/batch, accuracy=0.358, loss=3.17]
+Epoch 19: Train acc: 0.3578 | Validation acc: 0.0076
+Epoch 20/25: 100%|█████████████████████| 11/11 [01:36<00:00,  8.76s/batch, accuracy=0.355, loss=3.2]
+Epoch 20: Train acc: 0.3546 | Validation acc: 0.0083
+Epoch 21/25: 100%|████████████████████| 11/11 [01:11<00:00,  6.54s/batch, accuracy=0.368, loss=3.33]
+Epoch 21: Train acc: 0.3677 | Validation acc: 0.0106
+Epoch 22/25: 100%|████████████████████| 11/11 [01:23<00:00,  7.63s/batch, accuracy=0.378, loss=3.18]
+Epoch 22: Train acc: 0.3780 | Validation acc: 0.0099
+Epoch 23/25: 100%|████████████████████| 11/11 [01:38<00:00,  8.96s/batch, accuracy=0.383, loss=3.27]
+Epoch 23: Train acc: 0.3834 | Validation acc: 0.0114
+Epoch 24/25: 100%|████████████████████| 11/11 [01:38<00:00,  8.93s/batch, accuracy=0.398, loss=3.19]
+Epoch 24: Train acc: 0.3979 | Validation acc: 0.0106
+Epoch 25/25: 100%|████████████████████| 11/11 [01:13<00:00,  6.67s/batch, accuracy=0.401, loss=3.05]
+Epoch 25: Train acc: 0.4008 | Validation acc: 0.0083
+[0.14864865 0.18812233 0.20803698 0.22830725 0.23897582 0.25248933
+ 0.26173542 0.27169275 0.2802276  0.2898293  0.29800853 0.30049787
+ 0.30725462 0.31614509 0.32716927 0.33001422 0.33961593 0.34530583
+ 0.35775249 0.35455192 0.36770982 0.37802276 0.38335704 0.39793741
+ 0.40078236]
+[0.0060698  0.0060698  0.0091047  0.00834598 0.00682853 0.0091047
+ 0.0091047  0.00758725 0.0091047  0.00758725 0.01138088 0.00758725
+ 0.00834598 0.00986343 0.01062215 0.01062215 0.01062215 0.01062215
+ 0.00758725 0.00834598 0.01062215 0.00986343 0.01138088 0.01062215
+ 0.00834598]
+Training complete!
+_______________________________________________
+
+CONFIGURATION: SZ = 256, LR = 0.005, EPOCH = 25
